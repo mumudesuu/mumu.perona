@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>🌼 花田庫存 精華・花瓣管理</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌼</text></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&family=Zen+Maru+Gothic:wght@400;500;700;900&display=swap" rel="stylesheet">
@@ -819,6 +820,13 @@
     return sorted.slice(0, n);
   }
 
+  // 精華＋花瓣總量小於 2000 的花種 —— 建議優先補倉，總量最少的排最前面
+  function topLowStock(n, threshold){
+    const low = items.filter(i => (i.essence + i.petal) < threshold);
+    low.sort((a, b) => (a.essence + a.petal) - (b.essence + b.petal));
+    return low.slice(0, n);
+  }
+
   function restockListHtml(list){
     if(list.length === 0) return `<li style="color:#A6947A;">目前沒有資料</li>`;
     return list.map((item, i) => {
@@ -829,6 +837,22 @@
           <span class="color-tag ${meta.cls}" style="padding:2px 8px;font-size:10.5px;">${meta.emoji}</span>
           <span class="rank-name">${escapeHtml(item.species)}</span>
           <span class="rank-qty">✨${item.essence}／🌸${item.petal}</span>
+        </li>
+      `;
+    }).join("");
+  }
+
+  function lowStockListHtml(list){
+    if(list.length === 0) return `<li style="color:#A6947A;">沒有低於門檻的花種</li>`;
+    return list.map((item, i) => {
+      const meta = COLOR_META[item.color];
+      const total = item.essence + item.petal;
+      return `
+        <li>
+          <span class="rank-no">${i + 1}</span>
+          <span class="color-tag ${meta.cls}" style="padding:2px 8px;font-size:10.5px;">${meta.emoji}</span>
+          <span class="rank-name">${escapeHtml(item.species)}</span>
+          <span class="rank-qty">共${total}</span>
         </li>
       `;
     }).join("");
@@ -858,6 +882,13 @@
       <div class="analysis-card">
         <h3>🧺 建議快補花瓣 Top 5</h3>
         <ul class="rank-list">${restockListHtml(topRestockPetal(5))}</ul>
+      </div>
+    `;
+
+    html += `
+      <div class="analysis-card">
+        <h3>📦 補倉建議 Top 5（精華＋花瓣＜2000）</h3>
+        <ul class="rank-list">${lowStockListHtml(topLowStock(5, 2000))}</ul>
       </div>
     `;
 
