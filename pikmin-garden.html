@@ -237,10 +237,14 @@
     transition:transform .1s ease, border-color .15s ease, box-shadow .15s ease;
   }
   .card.cooling{border-color:var(--sky); box-shadow:0 6px 0 rgba(46,147,178,0.24);}
-  .card.highlight-flash{animation:cardFlash 1.6s ease;}
+  .card.highlight-flash{animation:cardFlash 2s ease; position:relative; z-index:2;}
   @keyframes cardFlash{
-    0%{outline:4px solid rgba(176,128,224,.65); outline-offset:2px;}
-    100%{outline:4px solid rgba(176,128,224,0); outline-offset:2px;}
+    0%{outline:5px solid rgba(176,128,224,.9); outline-offset:3px; transform:scale(1.02);}
+    20%{outline:5px solid rgba(176,128,224,.2); outline-offset:3px; transform:scale(1);}
+    40%{outline:5px solid rgba(176,128,224,.9); outline-offset:3px;}
+    60%{outline:5px solid rgba(176,128,224,.2); outline-offset:3px;}
+    80%{outline:5px solid rgba(176,128,224,.75); outline-offset:3px;}
+    100%{outline:5px solid rgba(176,128,224,0); outline-offset:3px; transform:scale(1);}
   }
 
   .card-head{display:flex; justify-content:space-between; align-items:flex-start; gap:10px;}
@@ -345,6 +349,53 @@
   }
   .coords-copy-btn:hover{background:var(--sky-deep);}
   .coords-copy-btn.copied{background:var(--leaf);}
+
+  .drivelink-row{display:flex; align-items:center; gap:8px;}
+  .drivelink-label{
+    font-family:'Baloo 2',sans-serif; font-weight:700; font-size:13px;
+    color:var(--purple-deep); flex-shrink:0; white-space:nowrap;
+  }
+  .drivelink-input{
+    width:100%;
+    background:#F6EFFC;
+    border:2px solid #E4D3F5;
+    border-radius:11px;
+    padding:9px 12px;
+    font-family:'Baloo 2','Zen Maru Gothic',monospace;
+    font-size:12.5px;
+    font-weight:700;
+    color:var(--ink);
+    outline:none;
+  }
+  .drivelink-input::placeholder{color:#B8A0D6; font-weight:600; font-family:'Zen Maru Gothic',sans-serif;}
+  .drivelink-input:focus{border-color:var(--purple);}
+  .drivelink-copy-btn{
+    background:var(--purple);
+    color:var(--white);
+    border:none;
+    border-radius:9px;
+    width:34px; height:34px; flex-shrink:0;
+    display:flex; align-items:center; justify-content:center;
+    font-size:14px;
+    cursor:pointer;
+  }
+  .drivelink-copy-btn:hover{background:var(--purple-deep);}
+  .drivelink-copy-btn.copied{background:var(--leaf);}
+
+  .copy-info-btn{
+    width:100%;
+    background:var(--white);
+    border:2px solid var(--cream-deep);
+    color:var(--ink);
+    border-radius:12px;
+    padding:10px 0;
+    font-family:'Baloo 2',sans-serif;
+    font-weight:700;
+    font-size:13px;
+    cursor:pointer;
+  }
+  .copy-info-btn:hover{border-color:var(--leaf); background:var(--cream);}
+  .copy-info-btn.copied{border-color:var(--leaf); background:#EAF6EE; color:var(--leaf-deep);}
 
   .local-time-row{
     display:flex; align-items:center; gap:6px;
@@ -645,6 +696,15 @@
     <button class="passcode-submit" id="passcodeSubmit">解鎖</button>
   </div>
 </div>
+<script>
+  (function(){
+    try{
+      if(localStorage.getItem('pikmin-device-trusted') === 'true'){
+        document.getElementById('passcodeGate').style.display = 'none';
+      }
+    }catch(e){}
+  })();
+</script>
 
 <span class="float f1">🍃</span>
 <span class="float f2">🌱</span>
@@ -726,6 +786,7 @@ const DEFAULT_API_URL = 'https://script.google.com/macros/s/AKfycbw8nn7gI0n6-w72
 const GOOGLE_CLIENT_ID = '1001037373208-3sdt3t6aekf1v0efidd53ob62m92t2nl.apps.googleusercontent.com';
 const ADMIN_EMAIL = 'sandy36095@gmail.com';
 const ADMIN_TOKEN_KEY = 'pikmin-admin-token';
+const DEVICE_TRUST_KEY = 'pikmin-device-trusted';
 const PRESETS = [
   { label:'23 小時', minutes: 23*60 },
   { label:'6 小時', minutes: 6*60 },
@@ -819,6 +880,14 @@ async function handleCredentialResponse(response){
     toast('已用管理員帳號登入');
     closeLoginModal();
     updateAdminUI();
+    try{
+      if(localStorage.getItem(DEVICE_TRUST_KEY) !== 'true'){
+        if(confirm('要記住這台裝置嗎？記住後，下次開啟這個網站不需要再輸入通關密語。')){
+          localStorage.setItem(DEVICE_TRUST_KEY, 'true');
+          toast('已記住這台裝置');
+        }
+      }
+    }catch(e){}
   }else{
     toast('這個 Google 帳號沒有管理員權限');
     if(window.google) google.accounts.id.disableAutoSelect();
@@ -862,6 +931,13 @@ document.getElementById('adminToggle').addEventListener('click', ()=>{
       try{ localStorage.removeItem(ADMIN_TOKEN_KEY); }catch(e){}
       if(window.google) google.accounts.id.disableAutoSelect();
       updateAdminUI();
+      try{
+        if(localStorage.getItem(DEVICE_TRUST_KEY) === 'true'){
+          if(confirm('要一併取消這台裝置的通關密語豁免嗎？取消後，下次開啟就需要重新輸入通關密語。')){
+            localStorage.removeItem(DEVICE_TRUST_KEY);
+          }
+        }
+      }catch(e){}
     }
   }else{
     openLoginModal();
@@ -910,6 +986,7 @@ async function fetchFields(){
           name: f.name,
           species: f.species || '',
           coords: f.coords || '',
+          driveLink: f.driveLink || '',
           category: f.category || '其他',
           harvest: f.harvest === true || f.harvest === 'TRUE',
           fridge: f.fridge === true || f.fridge === 'TRUE',
@@ -969,7 +1046,7 @@ async function callApi(payload){
 async function addField(name, coords){
   const tempId = 'temp' + Date.now();
   fields.unshift({
-    id: tempId, name, species:'', coords: coords || '', category:'暫存',
+    id: tempId, name, species:'', coords: coords || '', driveLink:'', category:'暫存',
     harvest:false, fridge:false, ready:false,
     createdAt: Date.now(), timerEnd:null, timerMinutes:null
   });
@@ -993,6 +1070,10 @@ async function setSpecies(id, species){
 }
 async function setCoords(id, coords){
   callApi({action:'setCoords', id, coords: coords.trim()});
+}
+async function setDriveLink(id, driveLink){
+  if(!adminMode) return;
+  callApi({action:'setDriveLink', id, driveLink: driveLink.trim(), idToken: adminIdToken});
 }
 async function setCategory(id, category){
   const f = fields.find(x=>x.id===id);
@@ -1116,6 +1197,34 @@ function localTimeBlock(f){
     </div>`;
 }
 
+async function copyHarvestInfo(id, btnEl){
+  const f = fields.find(x=>x.id===id);
+  if(!f) return;
+  const c = parseCoords(f.coords);
+  const localTimeStr = c ? formatLocalTime(c.lng) : '—';
+  const hasTimer = !!f.timerEnd;
+  const remaining = hasTimer ? formatCountdown(f.timerEnd - Date.now()) : '無倒數';
+  const pathLine = adminMode ? (f.driveLink || '') : '';
+  const text = `${f.name} \n當地時間🕰️${localTimeStr}\n\n花種：${f.species || ''}\n地點：${f.coords || ''}\n剩餘：${remaining}\n\n路徑：${pathLine}`;
+  try{
+    await navigator.clipboard.writeText(text);
+  }catch(err){
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+  }
+  toast('已複製收成資訊');
+  if(btnEl){
+    btnEl.classList.add('copied');
+    setTimeout(()=>btnEl.classList.remove('copied'), 1200);
+  }
+}
+
 function cardTemplate(f){
   const hasTimer = !!f.timerEnd;
   const remaining = hasTimer ? f.timerEnd - Date.now() : 0;
@@ -1156,6 +1265,14 @@ function cardTemplate(f){
     </div>
     ${localTimeBlock(f)}
 
+    ${adminMode ? `
+    <div class="drivelink-row">
+      <span class="drivelink-label">☁️ 雲端</span>
+      <input class="drivelink-input" data-role="drivelink" placeholder="貼上雲端連結" value="${escapeHtml(f.driveLink || '')}">
+      <button class="drivelink-copy-btn" data-role="copy-drivelink" type="button" title="複製雲端連結">📋</button>
+    </div>
+    ` : ''}
+
     <div class="timer-box">
       ${hasTimer ? `
         <div class="timer-active-row">
@@ -1179,6 +1296,8 @@ function cardTemplate(f){
         </div>` : ''}
       `}
     </div>
+
+    <button class="copy-info-btn" data-role="copy-info" type="button">📋 複製收成資訊</button>
 
     ${adminMode ? `
     <label class="harvest-check-row">
@@ -1252,6 +1371,35 @@ function render(){
         document.execCommand('copy');
         toast('座標已複製');
       }
+    });
+  });
+  grid.querySelectorAll('[data-role="drivelink"]').forEach(inp=>{
+    inp.addEventListener('change', e=>{
+      setDriveLink(e.target.closest('.card').dataset.id, e.target.value);
+    });
+  });
+  grid.querySelectorAll('[data-role="copy-drivelink"]').forEach(btn=>{
+    btn.addEventListener('click', async e=>{
+      const card = e.target.closest('.card');
+      const input = card.querySelector('[data-role="drivelink"]');
+      const value = input.value.trim();
+      if(!value){ toast('這塊花田還沒有貼雲端連結'); return; }
+      try{
+        await navigator.clipboard.writeText(value);
+        toast('雲端連結已複製');
+        e.target.classList.add('copied');
+        setTimeout(()=>e.target.classList.remove('copied'), 1200);
+      }catch(err){
+        input.select();
+        document.execCommand('copy');
+        toast('雲端連結已複製');
+      }
+    });
+  });
+  grid.querySelectorAll('[data-role="copy-info"]').forEach(btn=>{
+    btn.addEventListener('click', async e=>{
+      const id = e.target.closest('.card').dataset.id;
+      await copyHarvestInfo(id, e.target);
     });
   });
   grid.querySelectorAll('[data-role="category"]').forEach(btn=>{
@@ -1435,7 +1583,7 @@ function jumpToCard(fieldId){
     cardEl.classList.remove('highlight-flash');
     void cardEl.offsetWidth;
     cardEl.classList.add('highlight-flash');
-    setTimeout(()=>cardEl.classList.remove('highlight-flash'), 1600);
+    setTimeout(()=>cardEl.classList.remove('highlight-flash'), 2000);
   }else{
     toast('找不到這張花田卡片，可能已被刪除');
   }
