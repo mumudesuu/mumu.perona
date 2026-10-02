@@ -1066,7 +1066,10 @@ async function renameField(id, name){
   callApi({action:'rename', id, name: name.trim() || '未命名花田'});
 }
 async function setSpecies(id, species){
-  callApi({action:'setSpecies', id, species: species.trim()});
+  const trimmed = species.trim();
+  callApi({action:'setSpecies', id, species: trimmed});
+  const entry = mergedLog.find(l => l.fieldId === id);
+  if(entry){ entry.species = trimmed; renderMergedLog(); }
 }
 async function setCoords(id, coords){
   callApi({action:'setCoords', id, coords: coords.trim()});
@@ -1204,8 +1207,10 @@ async function copyHarvestInfo(id, btnEl){
   const localTimeStr = c ? formatLocalTime(c.lng) : '—';
   const hasTimer = !!f.timerEnd;
   const remaining = hasTimer ? formatCountdown(f.timerEnd - Date.now()) : '無倒數';
-  const pathLine = adminMode ? (f.driveLink || '') : '';
-  const text = `${f.name} \n當地時間🕰️${localTimeStr}\n\n花種：${f.species || ''}\n地點：${f.coords || ''}\n剩餘：${remaining}\n\n路徑：${pathLine}`;
+  let text = `${f.name} \n當地時間🕰️${localTimeStr}\n\n花種：${f.species || ''}\n地點：${f.coords || ''}\n剩餘：${remaining}`;
+  if(adminMode){
+    text += `\n\n路徑：${f.driveLink || ''}`;
+  }
   try{
     await navigator.clipboard.writeText(text);
   }catch(err){
@@ -1580,10 +1585,25 @@ function jumpToCard(fieldId){
   }
   if(cardEl){
     cardEl.scrollIntoView({behavior:'smooth', block:'center'});
-    cardEl.classList.remove('highlight-flash');
-    void cardEl.offsetWidth;
-    cardEl.classList.add('highlight-flash');
-    setTimeout(()=>cardEl.classList.remove('highlight-flash'), 2000);
+    const applyHighlight = ()=>{
+      cardEl.classList.remove('highlight-flash');
+      void cardEl.offsetWidth;
+      cardEl.classList.add('highlight-flash');
+      setTimeout(()=>cardEl.classList.remove('highlight-flash'), 2000);
+    };
+    if('onscrollend' in window){
+      let done = false;
+      const finish = ()=>{
+        if(done) return;
+        done = true;
+        window.removeEventListener('scrollend', finish);
+        applyHighlight();
+      };
+      window.addEventListener('scrollend', finish);
+      setTimeout(finish, 1800);
+    }else{
+      setTimeout(applyHighlight, 700);
+    }
   }else{
     toast('找不到這張花田卡片，可能已被刪除');
   }
