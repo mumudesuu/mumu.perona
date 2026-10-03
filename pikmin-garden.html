@@ -425,6 +425,21 @@
   .add-bar-coords::placeholder{color:#A9BBAE; font-weight:600; font-family:'Zen Maru Gothic',sans-serif;}
   .add-bar-coords:focus{border-color:var(--sky);}
 
+  .add-bar-category{
+    background:var(--white);
+    border:2px solid var(--cream-deep);
+    color:var(--ink);
+    border-radius:14px;
+    padding:13px 16px;
+    font-family:'Zen Maru Gothic',sans-serif;
+    font-size:14px;
+    font-weight:700;
+    outline:none;
+    cursor:pointer;
+    min-width:140px;
+  }
+  .add-bar-category:focus{border-color:var(--purple);}
+
   .timer-box{border-top:2px dashed var(--cream-deep); padding-top:14px; display:flex; flex-direction:column; gap:10px;}
   .timer-label{font-size:11.5px; color:#9AAB9F; font-weight:700; letter-spacing:.02em;}
   .preset-row{display:flex; gap:8px;}
@@ -605,6 +620,11 @@
     font-family:'Baloo 2',sans-serif; font-weight:700; font-size:17px;
     color:var(--leaf-deep); margin:0 0 12px;
   }
+  .log-filter-tabs{margin-bottom:14px;}
+  .log-empty{
+    text-align:center; color:#9AAB9F; font-size:13px;
+    padding:20px 0;
+  }
   .log-list{list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:0;}
   .log-item{
     display:flex; align-items:center; gap:10px;
@@ -739,13 +759,22 @@
     <button class="filter-tab" data-role="filter" data-category="達醬">達醬</button>
     <button class="filter-tab" data-role="filter" data-category="柴田">柴田</button>
     <button class="filter-tab" data-role="filter" data-category="Kiwi">Kiwi</button>
-    <button class="filter-tab" data-role="filter" data-category="暫存">暫存</button>
     <button class="filter-tab" data-role="filter" data-category="其他">其他</button>
+    <button class="filter-tab" data-role="filter" data-category="暫存">暫存</button>
   </div>
 
   <div class="add-bar">
     <input type="text" id="newFieldName" placeholder="🌼 新花田名稱，例如：後院 A 區" maxlength="24" autocomplete="off">
     <input type="text" id="newFieldCoords" class="add-bar-coords" placeholder="🧭 座標（選填）" maxlength="60" autocomplete="off">
+    <select id="newFieldCategory" class="add-bar-category">
+      <option value="">分類（選填）</option>
+      <option value="沐田">沐田</option>
+      <option value="達醬">達醬</option>
+      <option value="柴田">柴田</option>
+      <option value="Kiwi">Kiwi</option>
+      <option value="其他">其他</option>
+      <option value="暫存">暫存</option>
+    </select>
     <button class="add-btn" id="addBtn">＋ 新增花田</button>
   </div>
 
@@ -758,6 +787,7 @@
   <div id="recordsWrap">
     <section class="harvest-log-section" id="logSection" style="display:none;">
       <h2 class="log-title">📋 花田紀錄</h2>
+      <div class="filter-tabs log-filter-tabs" id="logFilterTabs"></div>
       <ul class="log-list" id="logList"></ul>
       <button class="log-expand-btn" id="logExpandBtn" type="button"></button>
     </section>
@@ -793,7 +823,7 @@ const PRESETS = [
   { label:'3 小時', minutes: 3*60 }
 ];
 const BASELINE_MINUTES = Math.max(...PRESETS.map(p => p.minutes));
-const CATEGORIES = ['沐田', '達醬', '柴田', 'Kiwi', '暫存', '其他'];
+const CATEGORIES = ['沐田', '達醬', '柴田', 'Kiwi', '其他', '暫存'];
 let apiUrl = DEFAULT_API_URL;
 let fields = [];
 let initialLoading = true;
@@ -805,6 +835,7 @@ let adminMode = false;
 let adminIdToken = '';
 let customOpenIds = new Set();
 let selectedCategories = new Set();
+let selectedLogCategories = new Set();
 let currentSearch = '';
 let pendingWrites = {};
 
@@ -1043,15 +1074,16 @@ async function callApi(payload){
   }
 }
 
-async function addField(name, coords){
+async function addField(name, coords, category){
   const tempId = 'temp' + Date.now();
+  const finalCategory = category || '暫存';
   fields.unshift({
-    id: tempId, name, species:'', coords: coords || '', driveLink:'', category:'暫存',
+    id: tempId, name, species:'', coords: coords || '', driveLink:'', category: finalCategory,
     harvest:false, fridge:false, ready:false,
     createdAt: Date.now(), timerEnd:null, timerMinutes:null
   });
   render();
-  const result = await callApi({action:'add', name, coords: coords || ''});
+  const result = await callApi({action:'add', name, coords: coords || '', category: category || ''});
   if(result && result.ok && result.id){
     const f = fields.find(x=>x.id===tempId);
     if(f) f.id = result.id;
@@ -1463,7 +1495,22 @@ function renderMergedLog(){
     return;
   }
   section.style.display = 'block';
-  const capped = mergedLog.slice(0, LOG_MAX_COUNT);
+
+  let filtered = mergedLog;
+  if(selectedLogCategories.size > 0){
+    filtered = mergedLog.filter(l => {
+      const field = fields.find(f => f.id === l.fieldId);
+      return field && selectedLogCategories.has(field.category);
+    });
+  }
+
+  if(!filtered.length){
+    listEl.innerHTML = '<li class="log-empty">沒有符合篩選條件的紀錄</li>';
+    btn.style.display = 'none';
+    return;
+  }
+
+  const capped = filtered.slice(0, LOG_MAX_COUNT);
   const shown = logExpanded ? capped : capped.slice(0, LOG_PREVIEW_COUNT);
   listEl.innerHTML = shown.map(l => `
     <li class="log-item" data-field-id="${escapeHtml(l.fieldId || '')}">
@@ -1478,6 +1525,29 @@ function renderMergedLog(){
   }else{
     btn.style.display = 'none';
   }
+}
+
+function buildLogFilterTabs(){
+  const container = document.getElementById('logFilterTabs');
+  const allBtn = `<button class="filter-tab active" data-role="log-filter" data-category="all">全部</button>`;
+  const catBtns = CATEGORIES.map(c => `<button class="filter-tab" data-role="log-filter" data-category="${c}">${c}</button>`).join('');
+  container.innerHTML = allBtn + catBtns;
+  container.querySelectorAll('[data-role="log-filter"]').forEach(btn=>{
+    btn.addEventListener('click', e=>{
+      const cat = e.target.dataset.category;
+      if(cat === 'all'){
+        selectedLogCategories.clear();
+      }else{
+        if(selectedLogCategories.has(cat)) selectedLogCategories.delete(cat);
+        else selectedLogCategories.add(cat);
+      }
+      container.querySelectorAll('[data-role="log-filter"]').forEach(b=>{
+        if(b.dataset.category === 'all') b.classList.toggle('active', selectedLogCategories.size === 0);
+        else b.classList.toggle('active', selectedLogCategories.has(b.dataset.category));
+      });
+      renderMergedLog();
+    });
+  });
 }
 
 function startTicker(){
@@ -1504,12 +1574,15 @@ function startTicker(){
 document.getElementById('addBtn').addEventListener('click', ()=>{
   const input = document.getElementById('newFieldName');
   const coordsInput = document.getElementById('newFieldCoords');
+  const categorySelect = document.getElementById('newFieldCategory');
   const name = input.value.trim();
   const coords = coordsInput.value.trim();
+  const category = categorySelect.value;
   if(!name) return;
-  addField(name, coords);
+  addField(name, coords, category);
   input.value = '';
   coordsInput.value = '';
+  categorySelect.value = '';
 });
 document.getElementById('newFieldName').addEventListener('keydown', e=>{
   if(e.key === 'Enter') document.getElementById('addBtn').click();
@@ -1632,6 +1705,7 @@ document.getElementById('passcodeInput').addEventListener('keydown', e=>{
   if(e.key === 'Enter') checkPasscode();
 });
 
+buildLogFilterTabs();
 loadAdminState();
 loadApiUrl();
 startTicker();
