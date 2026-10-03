@@ -237,14 +237,12 @@
     transition:transform .1s ease, border-color .15s ease, box-shadow .15s ease;
   }
   .card.cooling{border-color:var(--sky); box-shadow:0 6px 0 rgba(46,147,178,0.24);}
-  .card.highlight-flash{animation:cardFlash 2s ease; position:relative; z-index:2;}
-  @keyframes cardFlash{
-    0%{outline:5px solid rgba(176,128,224,.9); outline-offset:3px; transform:scale(1.02);}
-    20%{outline:5px solid rgba(176,128,224,.2); outline-offset:3px; transform:scale(1);}
-    40%{outline:5px solid rgba(176,128,224,.9); outline-offset:3px;}
-    60%{outline:5px solid rgba(176,128,224,.2); outline-offset:3px;}
-    80%{outline:5px solid rgba(176,128,224,.75); outline-offset:3px;}
-    100%{outline:5px solid rgba(176,128,224,0); outline-offset:3px; transform:scale(1);}
+  .card.highlight-flash{
+    position:relative; z-index:2;
+    outline:4px solid var(--purple);
+    outline-offset:3px;
+    box-shadow:0 8px 0 rgba(176,128,224,.5);
+    transition:outline-color .4s ease, box-shadow .4s ease;
   }
 
   .card-head{display:flex; justify-content:space-between; align-items:flex-start; gap:10px;}
@@ -1662,7 +1660,7 @@ function jumpToCard(fieldId){
       cardEl.classList.remove('highlight-flash');
       void cardEl.offsetWidth;
       cardEl.classList.add('highlight-flash');
-      setTimeout(()=>cardEl.classList.remove('highlight-flash'), 2000);
+      setTimeout(()=>cardEl.classList.remove('highlight-flash'), 6000);
     };
     if('onscrollend' in window){
       let done = false;
