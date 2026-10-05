@@ -1098,8 +1098,12 @@ async function renameField(id, name){
 async function setSpecies(id, species){
   const trimmed = species.trim();
   callApi({action:'setSpecies', id, species: trimmed});
-  const entry = mergedLog.find(l => l.fieldId === id);
-  if(entry){ entry.species = trimmed; renderMergedLog(); }
+  const f = fields.find(x=>x.id===id);
+  const isCountingDown = f && f.timerEnd !== null && f.timerEnd > Date.now();
+  if(isCountingDown){
+    const entry = mergedLog.find(l => l.fieldId === id);
+    if(entry){ entry.species = trimmed; renderMergedLog(); }
+  }
 }
 async function setCoords(id, coords){
   callApi({action:'setCoords', id, coords: coords.trim()});
