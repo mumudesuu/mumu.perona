@@ -463,6 +463,74 @@
     display:inline-block;
   }
 
+  /* ---------- search ---------- */
+  .search-bar{
+    display:flex; align-items:center; gap:8px;
+    max-width:460px; margin:-8px auto 26px;
+    background:var(--white);
+    border-radius:999px;
+    padding:6px 8px 6px 16px;
+    box-shadow:0 3px 0 rgba(43,70,54,0.15);
+  }
+  .search-bar input{
+    flex:1; min-width:0; border:none; outline:none; background:transparent;
+    font-family:"Zen Maru Gothic",sans-serif; font-size:14px; font-weight:500;
+    color:var(--ink); padding:6px 0;
+  }
+  .search-bar input::placeholder{ color:#9AB0A2; }
+  .search-bar .search-clear{
+    border:none; cursor:pointer; width:28px; height:28px; border-radius:50%;
+    background:#EFF7F1; color:var(--leaf-deep); font-size:14px; font-weight:700;
+    display:none;
+  }
+  .search-bar.has-text .search-clear{ display:inline-block; }
+  .search-hit{ background:#FFE9A8; border-radius:4px; padding:0 2px; }
+
+  /* ---------- planting records ---------- */
+  .records{
+    max-width:760px; margin:0 auto 28px;
+    background:rgba(255,255,255,0.75);
+    border-radius:20px;
+    box-shadow:0 4px 0 rgba(43,70,54,0.12);
+    padding:4px 16px;
+  }
+  .records summary{
+    cursor:pointer; list-style:none;
+    font-family:"Baloo 2","Zen Maru Gothic",sans-serif;
+    font-weight:700; font-size:16px; color:var(--leaf-deep);
+    padding:12px 0; display:flex; align-items:center; gap:8px;
+  }
+  .records summary::-webkit-details-marker{ display:none; }
+  .records summary::after{ content:"▾"; margin-left:auto; transition:transform .2s ease; }
+  .records details:not([open]) summary::after{ transform:rotate(-90deg); }
+  .rec-count{ font-size:12px; font-weight:700; background:var(--leaf); color:#fff; border-radius:999px; padding:1px 9px; }
+  .rec-list{ display:flex; flex-direction:column; gap:8px; padding-bottom:14px; }
+  .rec-group{ font-size:12px; font-weight:700; color:#7C9686; margin:6px 0 0; }
+  .rec-row{
+    display:grid; grid-template-columns: 1.3fr 1fr auto; gap:8px 12px; align-items:center;
+    background:#EFF7F1; border-radius:14px; padding:9px 12px; font-size:13.5px; font-weight:700;
+  }
+  .rec-row.harvest{ background:#FFF6DC; }
+  .rec-row.cooling{ background:#FFF1E4; }
+  .rec-row.ended{ background:#F3F1EC; color:#7A7468; }
+  .rec-name small{ display:block; font-weight:500; font-size:11.5px; opacity:.75; }
+  .rec-flower{ font-weight:700; }
+  .rec-flower.empty{ opacity:.5; font-weight:500; }
+  .rec-time{ text-align:right; font-family:"Baloo 2",monospace; font-size:15px; white-space:nowrap; }
+  .rec-time small{ display:block; font-family:"Zen Maru Gothic",sans-serif; font-size:11.5px; font-weight:500; opacity:.8; }
+  .rec-more{
+    align-self:center; border:none; cursor:pointer;
+    font-family:"Zen Maru Gothic",sans-serif; font-weight:700; font-size:13px;
+    color:var(--leaf-deep); background:#E1F1E6; border-radius:999px; padding:7px 18px; margin-top:4px;
+  }
+  .rec-more:hover{ background:#D2E9D9; }
+  .rec-empty{ text-align:center; color:#7C9686; font-size:13px; padding:8px 0 14px; }
+  @media (max-width:520px){
+    .rec-row{ grid-template-columns: 1fr auto; }
+    .rec-flower{ grid-column:1; }
+    .rec-time{ grid-row:1 / span 2; grid-column:2; }
+  }
+
   /* ---------- cards grid ---------- */
   .grid{
     display:grid;
@@ -662,6 +730,11 @@
     color:#C1454D;
   }
   .cd-btn.reset:hover{ background:#FBDCDC;}
+  .cd-btn.expired-clear{
+    background:#FFE9A8; color:#8A5A00; font-weight:900;
+    box-shadow:0 0 0 2px #FFC93C;
+  }
+  .cd-btn.expired-clear:hover{ background:#FFDD7A;}
 
   .custom-cooldown{
     display:flex;
@@ -828,6 +901,19 @@
     <!-- chips injected by JS -->
   </nav>
 
+  <div class="search-bar" id="searchBar">
+    <span aria-hidden="true">🔍</span>
+    <input type="search" id="searchInput" placeholder="搜尋花田（名稱、地區、花種、座標、備註）" autocomplete="off" />
+    <button type="button" class="search-clear" id="searchClear" aria-label="清除搜尋">✕</button>
+  </div>
+
+  <section class="records" id="recordsSection">
+    <details open>
+      <summary>🌱 種植紀錄 <span class="rec-count" id="recCount">0</span></summary>
+      <div class="rec-list" id="recList"></div>
+    </details>
+  </section>
+
   <main class="grid" id="grid">
     <!-- cards injected by JS -->
   </main>
@@ -986,6 +1072,10 @@
   const STANDARD_CYCLE_MS = 23 * 60 * 60 * 1000; // 標準完整開花週期，自訂倒數用這個反推起始時間
 
   let flowers = [];
+  let recExpanded = false;  // 種植紀錄：false = 只看最近 10 筆，true = 展開到最近 50 筆
+  const REC_COLLAPSED_COUNT = 10;
+  const REC_EXPANDED_COUNT = 50;
+  let records = [];        // 種植紀錄：每個花田最近一次的種植（倒數結束後也會保留）
   let isAdmin = false;      // true = 高階管理員(owner) 或 已認證皮友(member)，兩者都能操作倒數/花種/花苗花苞/隱藏
   let isOwner = false;      // true = 只有高階管理員(站長)，用來限制「查看＋複製路徑網址」這個獨立區塊
   let userRole = null;      // 'owner' | 'member' | null
@@ -1000,6 +1090,7 @@
   const statusFilterBar = document.getElementById('statusFilterBar');
   let activeRegion = "全部";
   let activeStatus = "全部狀態";
+  let searchQuery = "";
 
   function escapeHtml(str){
     return String(str == null ? '' : str)
@@ -1060,6 +1151,15 @@
       const data = await res.json();
       if(data.ok){
         flowers = data.fields.map(normalizeField);
+        records = (data.records || []).map(r => ({
+          id: r.id,
+          name: r.name,
+          region: r.region,
+          flowerType: r.flowerType || '',
+          startedAt: r.startedAt ? Number(r.startedAt) : null,
+          cooldownUntil: r.cooldownUntil ? Number(r.cooldownUntil) : null,
+          cancelled: !!r.cancelled,
+        }));
       }
       renderCards();
     } catch(err){
@@ -1137,6 +1237,11 @@
       }
       f.cooldownUntil = now + remainMs;
       if(flowerTypeValue) f.flowerType = flowerTypeValue;
+      // 重新開始時，同一花田上一筆如果還沒結束，視為被取代
+      records.forEach(r => { if(r.id === f.id && r.cooldownUntil > now){ r.cooldownUntil = now; r.cancelled = true; } });
+      records.unshift({ id: f.id, name: f.name, region: f.region, flowerType: f.flowerType || '',
+                        startedAt: f.cooldownStart, cooldownUntil: f.cooldownUntil, cancelled: false });
+      records = records.slice(0, REC_EXPANDED_COUNT);
       renderCards();
       return;
     }
@@ -1167,6 +1272,8 @@
       f.cooldownUntil = null;
       f.cooldownStart = null;
       f.flowerType = ''; // 取消倒數時一併清空花種
+      const nowTs = Date.now();
+      records.forEach(r => { if(r.id === id && r.cooldownUntil > nowTs){ r.cooldownUntil = nowTs; r.cancelled = true; } });
       renderCards();
       return;
     }
@@ -1479,13 +1586,99 @@
   waitForGoogleAndInit();
 
   // 判斷花田目前的階段：idle(空閒待命) / harvest(開花後1小時內可收成) / cooling(冷卻中無果實)
+  // / expired(倒數已結束但管理員還沒按清除，仍留在冷卻區)
   function getFlowerPhase(f){
-    if(!f.cooldownUntil || f.cooldownUntil <= Date.now()) return 'idle';
+    if(!f.cooldownUntil) return 'idle';
+    if(f.cooldownUntil <= Date.now()) return 'expired';
     const harvestEndsAt = Math.min(f.cooldownStart + HARVEST_WINDOW_MS, f.cooldownUntil);
     return (Date.now() < harvestEndsAt) ? 'harvest' : 'cooling';
   }
 
   let lastPhaseById = {};
+
+  // ---------- 種植紀錄 ----------
+  // 每次開始倒數就是一筆紀錄；倒數中的永遠置頂，其餘依開始時間由近到遠，
+  // 預設顯示最近 10 筆，可展開到最近 50 筆。
+  function renderRecords(){
+    const listEl = document.getElementById('recList');
+    const countEl = document.getElementById('recCount');
+    if(!listEl) return;
+    const now = Date.now();
+    const tokens = searchQuery.toLowerCase().split(/\s+/).filter(Boolean);
+
+    let rows = records.filter(r => activeRegion === "全部" || r.region === activeRegion);
+    if(tokens.length){
+      rows = rows.filter(r => {
+        const hay = [r.name, r.id, r.region, r.flowerType].join(' ').toLowerCase();
+        return tokens.every(t => hay.includes(t));
+      });
+    }
+
+    const isActive = r => r.cooldownUntil && r.cooldownUntil > now && !r.cancelled;
+    const active = rows.filter(isActive).sort((a, b) => a.cooldownUntil - b.cooldownUntil);
+    const endedAll = rows.filter(r => !isActive(r)).sort((a, b) => (b.startedAt || 0) - (a.startedAt || 0));
+    const limit = recExpanded ? REC_EXPANDED_COUNT : REC_COLLAPSED_COUNT;
+    const ended = endedAll.slice(0, limit);
+
+    countEl.textContent = active.length;
+
+    const rowHtml = (r, live) => {
+      const startStr = r.startedAt ? formatCheckedTime(r.startedAt) : '—';
+      let cls = 'rec-row ended';
+      let timeHtml;
+      if(live){
+        const harvesting = r.startedAt && now < Math.min(r.startedAt + HARVEST_WINDOW_MS, r.cooldownUntil);
+        cls = 'rec-row ' + (harvesting ? 'harvest' : 'cooling');
+        timeHtml = `<span class="rec-time"><span class="rec-remain" data-until="${r.cooldownUntil}">${formatRemain(r.cooldownUntil - now)}</span><small>${harvesting ? '🍒 可取得果實 · ' : ''}開始 ${startStr}</small></span>`;
+      } else {
+        timeHtml = `<span class="rec-time"><small>${r.cancelled ? '已取消倒數' : '倒數結束'}</small>開始於 ${startStr}</span>`;
+      }
+      return `<div class="${cls}">
+        <div class="rec-name">${escapeHtml(r.name)}<small>${escapeHtml(r.region || '')}</small></div>
+        <div class="rec-flower ${r.flowerType ? '' : 'empty'}">🌼 ${r.flowerType ? escapeHtml(r.flowerType) : '未設定花種'}</div>
+        ${timeHtml}
+      </div>`;
+    };
+
+    if(active.length + endedAll.length === 0){
+      listEl.innerHTML = `<div class="rec-empty">${records.length ? '沒有符合條件的種植紀錄' : '還沒有種植紀錄'}</div>`;
+      return;
+    }
+
+    let html = '';
+    if(active.length){
+      html += `<div class="rec-group">⏳ 倒數中（${active.length}）</div>` + active.map(r => rowHtml(r, true)).join('');
+    }
+    if(endedAll.length){
+      html += `<div class="rec-group">📜 種植紀錄（${recExpanded ? '最近 ' + REC_EXPANDED_COUNT + ' 筆' : '最近 ' + REC_COLLAPSED_COUNT + ' 筆'}，由近到遠）</div>`
+        + ended.map(r => rowHtml(r, false)).join('');
+      if(endedAll.length > REC_COLLAPSED_COUNT){
+        html += recExpanded
+          ? `<button type="button" class="rec-more" id="recMore">收合，只看最近 ${REC_COLLAPSED_COUNT} 筆</button>`
+          : `<button type="button" class="rec-more" id="recMore">展開更多（最多顯示 ${REC_EXPANDED_COUNT} 筆）</button>`;
+      }
+    }
+    listEl.innerHTML = html;
+  }
+
+  document.getElementById('recList').addEventListener('click', e => {
+    if(e.target && e.target.id === 'recMore'){
+      recExpanded = !recExpanded;
+      renderRecords();
+    }
+  });
+
+  // 每秒更新「倒數中」的剩餘時間；有紀錄剛好結束時重畫一次，轉成「開始於…」
+  function tickRecords(){
+    const now = Date.now();
+    let needRerender = false;
+    document.querySelectorAll('.rec-remain').forEach(el => {
+      const until = Number(el.dataset.until);
+      if(until <= now){ needRerender = true; return; }
+      el.textContent = formatRemain(until - now);
+    });
+    if(needRerender) renderRecords();
+  }
 
   function renderCards(){
     grid.innerHTML = "";
@@ -1497,7 +1690,19 @@
     let hiddenFiltered = isAdmin ? filtered.filter(f => f.hidden) : [];
     filtered = filtered.filter(f => !f.hidden);
 
-    // 狀態篩選：空閒中 = 沒有在倒數；冷卻中 = 可收成(前1小時) + 冷卻(1小時後)都算
+    // 搜尋：名稱 / id / 地區 / 花種 / 座標 / 備註，多個關鍵字以空白分隔（需全部符合）
+    const tokens = searchQuery.toLowerCase().split(/\s+/).filter(Boolean);
+    if(tokens.length){
+      const match = f => {
+        const hay = [f.name, f.id, f.region, f.flowerType, f.coord, (f.notes || []).join(' ')]
+          .join(' ').toLowerCase();
+        return tokens.every(t => hay.includes(t));
+      };
+      filtered = filtered.filter(match);
+      hiddenFiltered = hiddenFiltered.filter(match);
+    }
+
+    // 狀態篩選：空閒中 = 沒有在倒數；冷卻中 = 可收成(前1小時) + 冷卻(1小時後) + 倒數結束待清除都算
     // 兩份清單（一般 / 隱藏）都套用同一組篩選條件
     if(activeStatus === "空閒中"){
       filtered = filtered.filter(f => getFlowerPhase(f) === 'idle');
@@ -1520,7 +1725,7 @@
     const hiddenList = sortByHarvest(hiddenFiltered);
 
     if(list.length === 0){
-      grid.innerHTML = `<div class="empty"><span class="emoji">🌱</span>目前沒有符合條件的開花公告，換個篩選條件看看吧。</div>`;
+      grid.innerHTML = `<div class="empty"><span class="emoji">🌱</span>${searchQuery.trim() ? '找不到符合搜尋的花田，換個關鍵字試試吧。' : '目前沒有符合條件的開花公告，換個篩選條件看看吧。'}</div>`;
     } else {
       list.forEach((f, i) => grid.appendChild(createCardElement(f, i)));
     }
@@ -1537,6 +1742,7 @@
       hiddenGrid.innerHTML = '';
     }
 
+    renderRecords();
     updateAllCountdowns();
   }
 
@@ -1548,7 +1754,9 @@
 
       const cooldownBtns = COOLDOWN_PRESETS.map(p =>
         `<button class="cd-btn" data-action="start" data-id="${f.id}" data-min="${p.minutes}" type="button">⏳ ${p.label}</button>`
-      ).join("") + `<button class="cd-btn reset" data-action="clear" data-id="${f.id}" type="button">❄️ 取消倒數</button>`;
+      ).join("") + (getFlowerPhase(f) === 'expired'
+        ? `<button class="cd-btn reset expired-clear" data-action="clear" data-id="${f.id}" type="button">🧹 清除倒數並清空花種</button>`
+        : `<button class="cd-btn reset" data-action="clear" data-id="${f.id}" type="button">❄️ 取消倒數</button>`);
 
       const customCooldownHtml = `
         <div class="custom-cooldown">
@@ -1722,14 +1930,7 @@
       const prevPhase = lastPhaseById[f.id];
       if(prevPhase !== phase){
         phaseChanged = true;
-        // 從「有倒數中(可收成/冷卻中)」自然轉換成「空閒待命」，
-        // 代表倒數整個跑完了：順便清空花種，並盡力同步回後端。
-        if(prevPhase !== undefined && prevPhase !== 'idle' && phase === 'idle'){
-          f.flowerType = '';
-          if(isAdmin && API_URL && idToken){
-            fetch(`${API_URL}?action=clear&id=${encodeURIComponent(f.id)}&idToken=${encodeURIComponent(idToken)}`).catch(() => {});
-          }
-        }
+        // 倒數跑完後不再自動清空花種，改由管理員手動按「清除倒數並清空花種」。
         lastPhaseById[f.id] = phase;
       }
 
@@ -1737,14 +1938,19 @@
       const textEl = row.querySelector('.status-text');
       const timeEl = row.querySelector('.countdown-time');
 
-      // 沒有在冷卻，或冷卻已經完全結束 -> 空閒待命
-      if(!f.cooldownUntil || f.cooldownUntil <= Date.now()){
-        if(f.cooldownUntil && f.cooldownUntil <= Date.now()){
-          f.cooldownUntil = null;
-          f.cooldownStart = null;
-        }
+      // 沒有設定倒數 -> 空閒待命
+      if(!f.cooldownUntil){
         row.className = 'status-row';
         textEl.textContent = '🏃🏻空閒待命中';
+        timeEl.textContent = '';
+        if(card) card.classList.remove('harvest-glow');
+        return;
+      }
+
+      // 倒數已結束，但管理員還沒手動清除 -> 維持在冷卻區，花種也保留
+      if(f.cooldownUntil <= Date.now()){
+        row.className = 'status-row cooling';
+        textEl.textContent = isAdmin ? '⏰ 倒數結束，等待清除' : '⏰ 倒數已結束';
         timeEl.textContent = '';
         if(card) card.classList.remove('harvest-glow');
         return;
@@ -1798,6 +2004,7 @@
   }
 
   setInterval(updateAllCountdowns, 1000);
+  setInterval(tickRecords, 1000);
 
   function copyToClipboard(text, onDone){
     if(navigator.clipboard && navigator.clipboard.writeText){
@@ -1829,6 +2036,8 @@
       const h = Math.floor(totalMin / 60);
       const m = totalMin % 60;
       remainText = `${h}時 ${m}分`;
+    } else if(f.cooldownUntil){
+      remainText = '倒數已結束（尚待確認）';
     } else {
       remainText = '空閒待命中，隨時可前往';
     }
@@ -1896,6 +2105,17 @@
 
   renderChips();
   renderStatusChips();
+
+  const searchInput = document.getElementById('searchInput');
+  const searchClear = document.getElementById('searchClear');
+  const searchBarEl = document.getElementById('searchBar');
+  function applySearch(){
+    searchQuery = searchInput.value;
+    searchBarEl.classList.toggle('has-text', !!searchQuery);
+    renderCards();
+  }
+  searchInput.addEventListener('input', applySearch);
+  searchClear.addEventListener('click', () => { searchInput.value = ''; applySearch(); searchInput.focus(); });
   loadFields();
 
   const backendHintEl = document.getElementById('backendHint');
