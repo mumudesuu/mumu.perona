@@ -486,6 +486,17 @@
   .search-bar.has-text .search-clear{ display:inline-block; }
   .search-hit{ background:#FFE9A8; border-radius:4px; padding:0 2px; }
 
+  /* ---------- bulk clear ---------- */
+  .bulk-bar{ display:none; max-width:460px; margin:-14px auto 22px; text-align:center; }
+  .bulk-bar.show{ display:block; }
+  .bulk-clear{
+    border:none; cursor:pointer; border-radius:999px; padding:9px 20px;
+    font-family:"Zen Maru Gothic",sans-serif; font-weight:900; font-size:14px;
+    background:#FFE9A8; color:#8A5A00; box-shadow:0 3px 0 #E0B84A;
+  }
+  .bulk-clear:hover{ background:#FFDD7A; }
+  .bulk-clear:active{ transform:translateY(2px); box-shadow:0 1px 0 #E0B84A; }
+
   /* ---------- floating shortcut buttons ---------- */
   .fab-group{
     position:fixed; right:16px; bottom:calc(18px + env(safe-area-inset-bottom, 0px));
@@ -922,6 +933,9 @@
     <span aria-hidden="true">🔍</span>
     <input type="search" id="searchInput" placeholder="搜尋花田（名稱、地區、花種、座標、備註）" autocomplete="off" />
     <button type="button" class="search-clear" id="searchClear" aria-label="清除搜尋">✕</button>
+  </div>
+  <div class="bulk-bar" id="bulkBar">
+    <button type="button" class="bulk-clear" id="bulkClearBtn"></button>
   </div>
 
   <main class="grid" id="grid">
@@ -1695,6 +1709,28 @@
 
   let lastPhaseById = {};
 
+  // ---------- 一鍵清除已倒數結束的花田（管理員） ----------
+  function getExpiredFields(){
+    return flowers.filter(f => getFlowerPhase(f) === 'expired');
+  }
+  function updateBulkBar(){
+    const bar = document.getElementById('bulkBar');
+    if(!bar) return;
+    const n = isAdmin ? getExpiredFields().length : 0;
+    bar.classList.toggle('show', n > 0);
+    if(n > 0){
+      document.getElementById('bulkClearBtn').textContent = `🧹 一鍵清除已結束的倒數（${n}）`;
+    }
+  }
+  document.getElementById('bulkClearBtn').addEventListener('click', () => {
+    if(!isAdmin) return;
+    const list = getExpiredFields();
+    if(list.length === 0) return;
+    const names = list.map(f => f.name).join('、');
+    if(!confirm(`要清除這 ${list.length} 個已倒數結束的花田嗎？\n${names}\n\n會清除倒數並清空花種（種植紀錄會保留）。`)) return;
+    list.forEach(f => clearCooldown(f.id));
+  });
+
   // ---------- 種植紀錄 ----------
   // 每次開始倒數就是一筆紀錄；倒數中的永遠置頂，其餘依開始時間由近到遠，
   // 預設顯示最近 10 筆，可展開到最近 50 筆。
@@ -1856,6 +1892,7 @@
     }
 
     renderRecords();
+    updateBulkBar();
     updateAllCountdowns();
   }
 
