@@ -1106,6 +1106,12 @@
   let adminName = null;
   let pendingApplyToken = null; // 登入失敗、詢問是否申請成為管理員時暫存的 idToken
   let isSyncing = false;
+  let dataVersion = 0;        // 每次本機改動資料就 +1；讀取到一半的舊資料看到版本變了就丟掉，避免蓋掉剛按下的操作
+  let pendingOps = 0;         // 還在背景送出的操作數量
+  let opChain = Promise.resolve();
+  let pendingLoad = false;    // 因為正在編輯而延後的同步
+  let pendingRerender = false;// 因為正在編輯而延後的重新排序
+  let lastEditAt = 0;         // 最後一次在花田卡片裡輸入的時間
 
   const grid = document.getElementById('grid');
   const filterBar = document.getElementById('filterBar');
@@ -1153,17 +1159,23 @@
     };
   }
 
+  // 更新時間：每次成功同步資料就自動更新，不用再手動按重新整理
+  function setUpdateTime(){
+    const now = new Date();
+    const hh = String(now.getHours()).padStart(2,'0');
+    const mm = String(now.getMinutes()).padStart(2,'0');
+    document.getElementById('updateTime').textContent = `更新於 今天 ${hh}:${mm}`;
+  }
+
   async function loadFields(){
-    // 有人正在編輯花種輸入框時，先不要因為輪詢同步而打斷他打字
-    if(document.activeElement && document.activeElement.classList &&
-       document.activeElement.classList.contains('ft-input')){
-      return;
-    }
+    if(pendingOps > 0) return; // 還有操作在背景送出，等送完再同步
     if(!API_URL){
       flowers = FALLBACK_FIELDS.map(normalizeField);
       renderCards();
+      setUpdateTime();
       return;
     }
+    const versionAtStart = dataVersion;
     try{
       isSyncing = true;
       const url = idToken
@@ -1171,6 +1183,8 @@
         : `${API_URL}?action=list`;
       const res = await fetch(url);
       const data = await res.json();
+      // 讀取期間如果有人按了開始/清除倒數，這份資料已經過時，直接丟掉
+      if(versionAtStart !== dataVersion || pendingOps > 0) return;
       if(data.ok){
         flowers = data.fields.map(normalizeField);
         records = (data.records || []).map(r => ({
@@ -1182,6 +1196,7 @@
           cooldownUntil: r.cooldownUntil ? Number(r.cooldownUntil) : null,
           cancelled: !!r.cancelled,
         }));
+        setUpdateTime();
       }
       renderCards();
     } catch(err){
@@ -1189,6 +1204,57 @@
     } finally {
       isSyncing = false;
     }
+  }
+
+  // 是否正在編輯花田卡片：輸入框有游標、或剛打了字還沒儲存、或登入申請視窗開著
+  function isEditingCard(){
+    if(document.getElementById('applyOverlay')) return true;
+    const a = document.activeElement;
+    if(a && a.matches && a.matches('input, textarea, select') && a.type !== 'checkbox' &&
+       a.closest && a.closest('#grid, #hiddenGrid')){
+      return true;
+    }
+    if(Date.now() - lastEditAt < 60000){
+      const dirty = [...document.querySelectorAll('.ft-input')].some(el => {
+        const f = flowers.find(x => x.id === el.dataset.id);
+        return el.value.trim() !== ((f && f.flowerType) || '');
+      }) || [...document.querySelectorAll('.custom-hr, .custom-min')].some(el => el.value !== '');
+      if(dirty) return true;
+    }
+    return false;
+  }
+
+  // 每 20 秒的自動同步：編輯中就先延後，編輯完才補同步
+  function autoRefresh(){
+    if(isEditingCard()){ pendingLoad = true; return; }
+    loadFields();
+  }
+
+  // 每秒檢查：編輯結束後，補做被延後的同步／重新排序
+  function flushPending(){
+    if(!pendingLoad && !pendingRerender) return;
+    if(pendingOps > 0 || isEditingCard()) return;
+    if(pendingLoad){
+      pendingLoad = false;
+      pendingRerender = false;
+      loadFields();
+    } else {
+      pendingRerender = false;
+      renderCards();
+    }
+  }
+
+  document.addEventListener('input', (e) => {
+    if(e.target && e.target.closest && e.target.closest('#grid, #hiddenGrid')) lastEditAt = Date.now();
+  });
+
+  // 背景依序送出操作；畫面已經先更新，送完之後（不管成功失敗）都會再跟雲端同步一次
+  function queueOp(task){
+    pendingOps++;
+    opChain = opChain.then(task).catch(err => console.error(err)).finally(() => {
+      pendingOps--;
+      if(pendingOps === 0) pendingLoad = true;
+    });
   }
 
   function renderChips(){
@@ -1238,80 +1304,88 @@
     return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
   }
 
-  async function startCooldown(id, minutes, customRemaining){
+  // 開始倒數：畫面先立刻更新，再到背景送出，不用等雲端回應
+  function startCooldown(id, minutes, customRemaining){
     if(!isAdmin) return;
 
+    const f = flowers.find(x => x.id === id);
+    if(!f) return;
     const ftInput = document.querySelector(`.ft-input[data-id="${id}"]`);
     const flowerTypeValue = ftInput ? ftInput.value.trim() : '';
 
-    if(!API_URL){
-      const f = flowers.find(x => x.id === id);
-      if(!f) return;
-      const now = Date.now();
-      const remainMs = minutes * 60 * 1000;
-      if(customRemaining){
-        // 自訂剩餘時間：反推回標準 23 小時週期實際上是何時開始的，
-        // 這樣可收成的第一小時判斷才會跟著一起往前推移。
-        const elapsed = Math.max(0, STANDARD_CYCLE_MS - remainMs);
-        f.cooldownStart = now - elapsed;
-      } else {
-        f.cooldownStart = now;
-      }
-      f.cooldownUntil = now + remainMs;
-      if(flowerTypeValue) f.flowerType = flowerTypeValue;
-      // 重新開始時，同一花田上一筆如果還沒結束，視為被取代
-      records.forEach(r => { if(r.id === f.id && r.cooldownUntil > now){ r.cooldownUntil = now; r.cancelled = true; } });
-      records.unshift({ id: f.id, name: f.name, region: f.region, flowerType: f.flowerType || '',
-                        startedAt: f.cooldownStart, cooldownUntil: f.cooldownUntil, cancelled: false });
-      records = records.slice(0, REC_EXPANDED_COUNT);
-      renderCards();
-      return;
+    const now = Date.now();
+    const remainMs = minutes * 60 * 1000;
+    if(customRemaining){
+      // 自訂剩餘時間：反推回標準 23 小時週期實際上是何時開始的，
+      // 這樣可收成的第一小時判斷才會跟著一起往前推移。
+      const elapsed = Math.max(0, STANDARD_CYCLE_MS - remainMs);
+      f.cooldownStart = now - elapsed;
+    } else {
+      f.cooldownStart = now;
     }
+    f.cooldownUntil = now + remainMs;
+    if(ftInput) f.flowerType = flowerTypeValue;
+    // 重新開始時，同一花田上一筆如果還沒結束，視為被取代
+    records.forEach(r => { if(r.id === f.id && r.cooldownUntil > now){ r.cooldownUntil = now; r.cancelled = true; } });
+    const rec = { id: f.id, name: f.name, region: f.region, flowerType: f.flowerType || '',
+                  startedAt: f.cooldownStart, cooldownUntil: f.cooldownUntil, cancelled: false };
+    records.unshift(rec);
+    records = records.slice(0, REC_EXPANDED_COUNT);
+    dataVersion++;
+    renderCards();
+    if(!API_URL) return;
 
-    try{
-      const url = `${API_URL}?action=start&id=${encodeURIComponent(id)}&minutes=${minutes}&customRemaining=${customRemaining ? 'true' : 'false'}&flowerType=${encodeURIComponent(flowerTypeValue)}&idToken=${encodeURIComponent(idToken)}`;
-      const res = await fetch(url);
-      const data = await res.json();
-      if(!data.ok){
-        alert('操作失敗：' + (data.error || '未知錯誤，請重新登入管理員'));
-        return;
+    queueOp(async () => {
+      try{
+        const url = `${API_URL}?action=start&id=${encodeURIComponent(id)}&minutes=${minutes}&customRemaining=${customRemaining ? 'true' : 'false'}&flowerType=${encodeURIComponent(flowerTypeValue)}&idToken=${encodeURIComponent(idToken)}`;
+        const res = await fetch(url);
+        const data = await res.json();
+        if(!data.ok){
+          alert('操作失敗：' + (data.error || '未知錯誤，請重新登入管理員') + '\n畫面會還原成雲端上的最新狀態');
+          return;
+        }
+        if(data.warning) alert('⚠️ ' + data.warning);
+        // 以雲端回傳的時間為準
+        if(data.cooldownStart && data.cooldownUntil){
+          f.cooldownStart = Number(data.cooldownStart);
+          f.cooldownUntil = Number(data.cooldownUntil);
+          rec.startedAt = f.cooldownStart;
+          rec.cooldownUntil = f.cooldownUntil;
+        }
+      } catch(err){
+        alert('連線失敗，請檢查網路連線\n畫面會還原成雲端上的最新狀態');
       }
-      if(data.warning){
-        alert('⚠️ ' + data.warning);
-      }
-      await loadFields();
-    } catch(err){
-      alert('連線失敗，請檢查網路連線');
-    }
+    });
   }
 
-  async function clearCooldown(id){
+  // 清除倒數：同樣先更新畫面，再到背景送出
+  function clearCooldown(id){
     if(!isAdmin) return;
 
-    if(!API_URL){
-      const f = flowers.find(x => x.id === id);
-      if(!f) return;
-      f.cooldownUntil = null;
-      f.cooldownStart = null;
-      f.flowerType = ''; // 取消倒數時一併清空花種
-      const nowTs = Date.now();
-      records.forEach(r => { if(r.id === id && r.cooldownUntil > nowTs){ r.cooldownUntil = nowTs; r.cancelled = true; } });
-      renderCards();
-      return;
-    }
+    const f = flowers.find(x => x.id === id);
+    if(!f) return;
+    const nowTs = Date.now();
+    f.cooldownUntil = null;
+    f.cooldownStart = null;
+    f.flowerType = ''; // 清除倒數時一併清空花種
+    // 種植紀錄保留；倒數還沒跑完就被清掉的，標示為已取消
+    records.forEach(r => { if(r.id === id && r.cooldownUntil > nowTs){ r.cooldownUntil = nowTs; r.cancelled = true; } });
+    dataVersion++;
+    renderCards();
+    if(!API_URL) return;
 
-    try{
-      const url = `${API_URL}?action=clear&id=${encodeURIComponent(id)}&idToken=${encodeURIComponent(idToken)}`;
-      const res = await fetch(url);
-      const data = await res.json();
-      if(!data.ok){
-        alert('操作失敗：' + (data.error || '未知錯誤，請重新登入管理員'));
-        return;
+    queueOp(async () => {
+      try{
+        const url = `${API_URL}?action=clear&id=${encodeURIComponent(id)}&idToken=${encodeURIComponent(idToken)}`;
+        const res = await fetch(url);
+        const data = await res.json();
+        if(!data.ok){
+          alert('操作失敗：' + (data.error || '未知錯誤，請重新登入管理員') + '\n畫面會還原成雲端上的最新狀態');
+        }
+      } catch(err){
+        alert('連線失敗，請檢查網路連線\n畫面會還原成雲端上的最新狀態');
       }
-      await loadFields();
-    } catch(err){
-      alert('連線失敗，請檢查網路連線');
-    }
+    });
   }
 
   // 儲存花種：跟開始倒數是分開的動作，管理員隨時都能編輯，
@@ -1330,6 +1404,7 @@
       return;
     }
 
+    dataVersion++;
     try{
       const url = `${API_URL}?action=updateFlowerType&id=${encodeURIComponent(id)}&flowerType=${encodeURIComponent(value)}&idToken=${encodeURIComponent(idToken)}`;
       const res = await fetch(url);
@@ -1364,6 +1439,7 @@
       return;
     }
 
+    dataVersion++;
     try{
       const url = `${API_URL}?action=updateFlag&id=${encodeURIComponent(id)}&flag=${encodeURIComponent(flagKey)}&checked=${checked ? 'true' : 'false'}&idToken=${encodeURIComponent(idToken)}`;
       const res = await fetch(url);
@@ -1390,6 +1466,7 @@
       return;
     }
 
+    dataVersion++;
     try{
       const url = `${API_URL}?action=toggleHidden&id=${encodeURIComponent(id)}&hidden=${hidden ? 'true' : 'false'}&idToken=${encodeURIComponent(idToken)}`;
       const res = await fetch(url);
@@ -2015,6 +2092,12 @@
     // 重新整理排序：可收成的花田置頂，其餘的花田回到原本順序。
     // 順便保留使用者「正在輸入中」的花種文字，避免打字打到一半被重繪清掉。
     if(phaseChanged){
+      // 正在編輯花田卡片時不要重繪，等編輯完再補（避免打到一半的字被清掉）
+      if(isEditingCard()){
+        pendingRerender = true;
+        renderRecords();
+        return;
+      }
       const active = document.activeElement;
       let preserved = null;
       if(active && active.classList && active.classList.contains('ft-input')){
@@ -2041,6 +2124,7 @@
 
   setInterval(updateAllCountdowns, 1000);
   setInterval(tickRecords, 1000);
+  setInterval(flushPending, 1000);
 
   function copyToClipboard(text, onDone){
     if(navigator.clipboard && navigator.clipboard.writeText){
@@ -2131,11 +2215,8 @@
     cb();
   }
 
+  // 手動重新整理：不管有沒有在編輯都會立刻同步
   document.getElementById('refreshBtn').addEventListener('click', async () => {
-    const now = new Date();
-    const hh = String(now.getHours()).padStart(2,'0');
-    const mm = String(now.getMinutes()).padStart(2,'0');
-    document.getElementById('updateTime').textContent = `更新於 今天 ${hh}:${mm}`;
     await loadFields();
   });
 
@@ -2161,7 +2242,7 @@
 
   // 有接後端的話，每 20 秒自動跟大家同步一次最新的冷卻狀態
   if(API_URL){
-    setInterval(loadFields, 20000);
+    setInterval(autoRefresh, 20000);
   }
 </script>
 
