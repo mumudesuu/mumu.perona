@@ -486,6 +486,23 @@
   .search-bar.has-text .search-clear{ display:inline-block; }
   .search-hit{ background:#FFE9A8; border-radius:4px; padding:0 2px; }
 
+  /* ---------- floating shortcut buttons ---------- */
+  .fab-group{
+    position:fixed; right:16px; bottom:calc(18px + env(safe-area-inset-bottom, 0px));
+    z-index:90; display:flex; flex-direction:column; gap:10px;
+  }
+  .fab{
+    width:48px; height:48px; border:none; border-radius:50%; cursor:pointer;
+    background:var(--white); color:var(--leaf-deep); font-size:21px; line-height:1;
+    box-shadow:0 4px 0 rgba(43,70,54,0.18), 0 6px 14px rgba(43,70,54,0.18);
+    display:flex; align-items:center; justify-content:center;
+    transition:transform .15s ease;
+  }
+  .fab:hover{ transform:translateY(-2px); }
+  .fab:active{ transform:translateY(1px) scale(.95); }
+  .fab small{ display:none; }
+  .records{ scroll-margin-top:16px; }
+
   /* ---------- planting records ---------- */
   .records{
     max-width:760px; margin:0 auto 28px;
@@ -907,13 +924,6 @@
     <button type="button" class="search-clear" id="searchClear" aria-label="清除搜尋">✕</button>
   </div>
 
-  <section class="records" id="recordsSection">
-    <details open>
-      <summary>🌱 種植紀錄 <span class="rec-count" id="recCount">0</span></summary>
-      <div class="rec-list" id="recList"></div>
-    </details>
-  </section>
-
   <main class="grid" id="grid">
     <!-- cards injected by JS -->
   </main>
@@ -922,6 +932,18 @@
     <h2 class="hidden-section-title">🙈 已隱藏花田（訪客看不到，只有你自己看得到）</h2>
     <div class="grid" id="hiddenGrid"></div>
   </section>
+
+  <section class="records" id="recordsSection">
+    <details open>
+      <summary>🌱 種植紀錄 <span class="rec-count" id="recCount">0</span></summary>
+      <div class="rec-list" id="recList"></div>
+    </details>
+  </section>
+
+  <div class="fab-group" aria-label="快速跳轉">
+    <button type="button" class="fab" id="fabRecords" title="跳到種植紀錄" aria-label="跳到種植紀錄">🌱</button>
+    <button type="button" class="fab" id="fabTop" title="回到最上面" aria-label="回到最上面">⬆️</button>
+  </div>
 
   <section class="sign">
     <h2>🧺 收成小提醒</h2>
@@ -1661,6 +1683,17 @@
     listEl.innerHTML = html;
   }
 
+  // 懸浮按鈕：一鍵跳到種植紀錄 / 回到最上面
+  document.getElementById('fabRecords').addEventListener('click', () => {
+    const sec = document.getElementById('recordsSection');
+    const det = sec.querySelector('details');
+    if(det && !det.open) det.open = true;
+    sec.scrollIntoView({ behavior:'smooth', block:'start' });
+  });
+  document.getElementById('fabTop').addEventListener('click', () => {
+    window.scrollTo({ top:0, behavior:'smooth' });
+  });
+
   document.getElementById('recList').addEventListener('click', e => {
     if(e.target && e.target.id === 'recMore'){
       recExpanded = !recExpanded;
@@ -1712,13 +1745,16 @@
       hiddenFiltered = hiddenFiltered.filter(f => getFlowerPhase(f) !== 'idle');
     }
 
-    // 可收成中（開花後 1 小時內）的花田固定排在最上面；
-    // 一旦超過 1 小時變成冷卻中，就會回到原本的排序位置。
-    // sort 是穩定排序，同一階段內的花田彼此順序不會被打亂。
+    // 排序規則：
+    // 1. 有在倒數的（可收成 + 冷卻中 + 倒數結束待清除）排前面，依倒數結束時間由快到慢；
+    // 2. 沒有在倒數（空閒）的排後面，依花田名字排序。
+    const nameCmp = (a, b) => String(a.name).localeCompare(String(b.name), 'zh-Hant', { numeric:true });
     const sortByHarvest = (arr) => [...arr].sort((a, b) => {
-      const aTop = getFlowerPhase(a) === 'harvest' ? 0 : 1;
-      const bTop = getFlowerPhase(b) === 'harvest' ? 0 : 1;
-      return aTop - bTop;
+      const aCd = getFlowerPhase(a) !== 'idle';
+      const bCd = getFlowerPhase(b) !== 'idle';
+      if(aCd !== bCd) return aCd ? -1 : 1;
+      if(aCd) return (a.cooldownUntil - b.cooldownUntil) || nameCmp(a, b);
+      return nameCmp(a, b);
     });
 
     const list = sortByHarvest(filtered);
